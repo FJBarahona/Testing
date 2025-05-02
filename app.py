@@ -255,6 +255,27 @@ def editar_factura(id):
         
         return render_template('editar_factura.html', clientes=clientes, productos=productos, factura=factura, items=items)
 
+@app.route('/factura/eliminar/<int:id>', methods=['POST'])
+def eliminar_factura(id):
+    conn = get_db_connection()
+    if conn is None:
+        flash('Error al conectar a la base de datos.')
+        return render_template('error.html')
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('DELETE FROM factura_items WHERE factura_id = %s;', (id,))
+        cur.execute('DELETE FROM facturas WHERE id = %s;', (id,))
+        conn.commit()
+        cur.close()
+    except psycopg2.Error as e:
+        flash(f'Error al eliminar la factura: {e}')
+        return render_template('error.html')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('listar_facturas'))
+
 @app.route('/factura/pdf/<int:id>')
 def exportar_factura_pdf(id):
     conn = get_db_connection()
