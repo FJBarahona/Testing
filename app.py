@@ -255,5 +255,72 @@ def editar_factura(id):
         
         return render_template('editar_factura.html', clientes=clientes, productos=productos, factura=factura, items=items)
 
+@app.route('/factura/pdf/<int:id>')
+def exportar_factura_pdf(id):
+    conn = get_db_connection()
+    if conn is None:
+        flash('Error al conectar a la base de datos.')
+        return render_template('error.html')
+    
+    try:
+        cur = conn.cursor(cursor_factory=DictCursor)
+        cur.execute('''
+            SELECT f.id, f.numero, f.fecha, f.total, c.id as cliente_id, c.nombre as cliente_nombre, 
+                   c.direccion as cliente_direccion, c.telefono as cliente_telefono
+            FROM facturas f JOIN clientes c ON f.cliente_id = c.id WHERE f.id = %s;
+        ''', (id,))
+        factura = cur.fetchone()
+        
+        cur.execute('''
+            SELECT fi.id, p.nombre as producto, fi.cantidad, fi.precio, fi.subtotal
+            FROM factura_items fi JOIN productos p ON fi.producto_id = p.id
+            WHERE fi.factura_id = %s;
+        ''', (id,))
+        items = cur.fetchall()
+        
+        cur.close()
+    except psycopg2.Error as e:
+        flash(f'Error al obtener la factura: {e}')
+        return render_template('error.html')
+    finally:
+        conn.close()
+    
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    
+    p.drawString(100, height - 100, f"Factura #{factura['numero']}")
+    p.drawString(100, height - 120, f"Fecha: {factura['fecha']}")
+    p.drawString(100, height - 140, f"Cliente: {factura['cliente_nombre']}")
+    p.drawString(100, height - 160, f"Dirección: {factura['cliente_direccion']}")
+    p.drawString(100, height - 180, f"Teléfono: {factura['cliente_telefono']}")
+    
+    y = height - 220
+    p.drawString(100, y, "Producto")
+    p.drawString(300, y, "Cantidad")
+    p.drawString(400, y, "Precio Unitario")
+    p.drawString(500, y, "Subtotal")
+    
+    y -= 20
+    for item in items:
+        p.drawString(100, y, item['producto'])
+        p.drawString(300, y, str(item['cantidad']))
+        p.drawString(400, y, f"S/.{item['precio']:.2f}")
+        p.drawString(500, y, f"S/.{item['subtotal']:.2f}")
+        y -= 20
+    
+    p.drawString(400, y - 20, "Total:")
+    p.drawString(500, y - 20, f"S/.{factura['total']:.2f}")
+    
+    p.showPage()
+    p.save()
+    
+    buffer.seek(0)
+    response = make_response(buffer.read())
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'attachment; filename=factura_{factura["numero"]}.pdf'
+    
+    return response
+
 if __name__ == '__main__':
     app.run(debug=True)
